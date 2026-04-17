@@ -1,0 +1,29 @@
+# Unity 자동 생성 폴더 (용량 크고 로컬에서 재생성됨)
+/Library/
+/Temp/
+/Logs/
+/obj/
+/Build/
+/Builds/
+/UserSettings/
+
+# Visual Studio / Rider 자동 생성 파일
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.unityproj
+.vs/
+.idea/
+
+# OS 파일
+.DS_Store
+Thumbs.db
+
+# 에셋 임포트 캐시 (자동 재생성)
+/Assets/AssetStoreTools*
+
+# 크래시 리포트
+/sysinfo.txt
+/crashreport.*

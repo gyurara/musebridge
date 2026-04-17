@@ -1,0 +1,181 @@
+================================================================
+  Bridge Melody - 씬 세팅 가이드
+================================================================
+
+[ 0. 필수 사전 작업 ]
+─────────────────────────────────────────────────────────────
+1. Package Manager에서 TextMeshPro 설치 확인
+   (Window → Package Manager → TextMeshPro 검색)
+
+2. Build Settings에 씬 추가 (File → Build Settings)
+   - Assets/Scenes/MainMenu.unity   (index 0)
+   - Assets/Scenes/GameScene.unity  (index 1)
+   - Assets/Scenes/EndingScene.unity (index 2)
+
+3. Tag 추가 (Edit → Project Settings → Tags and Layers)
+   - Player
+   - Goal
+   - DeathZone
+   - Ground
+
+4. Layer 추가 (같은 창)
+   - Ground  (플레이어 접지 판정용)
+
+================================================================
+
+[ 1. ScriptableObject 생성 ]
+─────────────────────────────────────────────────────────────
+Project 창에서 Assets/ScriptableObjects 폴더 우클릭
+→ Create → BridgeRhythm 메뉴 활용
+
+■ InstrumentData 생성 (악기별로 하나씩)
+
+  [Piano]
+  - instrumentName : 피아노
+  - activationKey  : Alpha1  (키보드 1번)
+  - shapeType      : Straight
+  - bridgeColor    : 흰색 계열
+  - bridgeCurve    : 기본 직선 커브
+  - noteClips      : 도레미파솔라시도 오디오 클립 8개 연결
+
+  [Guitar]
+  - instrumentName : 기타
+  - activationKey  : Alpha2  (키보드 2번)
+  - shapeType      : Curved
+  - bridgeColor    : 갈색 계열
+  - bridgeCurve    : 위로 볼록한 커브 (중간 값 0.5 정도)
+  - noteClips      : 기타 현 오디오 클립 연결
+
+■ StageData 생성 (스테이지별로 하나씩)
+
+  [Stage1]
+  - stageIndex         : 0
+  - stageName          : 첫 번째 음표
+  - rhythmLineSpeed    : 2.5
+  - stageWidth         : 20
+  - maxBridgePieces    : 30
+  - perfectThreshold   : 5
+  - goodThreshold      : 12
+  - collectableInstruments : (기타 ScriptableObject 연결)
+
+================================================================
+
+[ 2. MainMenu 씬 세팅 ]
+─────────────────────────────────────────────────────────────
+1. 빈 씬 생성 후 저장 (Assets/Scenes/MainMenu)
+2. 유니티 상단 메뉴 → BridgeRhythm → Setup MainMenu 클릭
+3. MainMenuController 오브젝트에서:
+   - Start Button → 자동 연결됨
+   - Quit Button  → 자동 연결됨
+4. Camera 설정: Background Color → 크림색 (R:248 G:244 B:229)
+
+================================================================
+
+[ 3. GameScene 씬 세팅 ]
+─────────────────────────────────────────────────────────────
+1. 빈 씬 생성 후 저장 (Assets/Scenes/GameScene)
+2. 유니티 상단 메뉴 → BridgeRhythm → Setup GameScene 클릭
+3. 자동 생성된 오브젝트에서 인스펙터 연결:
+
+■ MANAGERS 오브젝트 내 StageManager
+  - All Stages 배열에 Stage1, Stage2... ScriptableObject 연결
+
+■ MANAGERS 오브젝트 내 AudioManager
+  - Sfx Source → AudioSource (1번째) 연결
+  - Music Source → AudioSource (2번째) 연결
+
+■ MANAGERS 오브젝트 내 BridgeBuilder
+  - Bridge Piece Prefab → BridgePiece 프리팹 연결
+  - Bridge Y Position → 0 (다리 생성 높이, 스테이지에 맞게 조정)
+
+■ MANAGERS 오브젝트 내 PlayPhaseManager
+  - Player → 플레이어 오브젝트 연결
+  - Player Start Position → 시작 지점 Transform 연결
+
+■ GameUICanvas 내 UIManager
+  - Build Phase Panel → BuildPhasePanel 오브젝트
+  - Instrument Sidebar Parent → InstrumentSidebar 오브젝트
+  - Instrument Button Prefab → 사이드바 버튼 프리팹
+  - Play Phase Panel → PlayPhasePanel
+  - Efficiency Score Text → EfficiencyScoreText
+
+4. 플레이어 프리팹 생성:
+   - Sprite: 임시 사각형 (나중에 교체)
+   - Tag: Player
+   - Layer: (기본)
+   - Rigidbody2D: Dynamic, Freeze Rotation Z = true
+   - BoxCollider2D 추가
+   - PlayerController 컴포넌트 추가
+   - Ground Check: 빈 자식 오브젝트를 발 아래에 배치
+   - Ground Layer: Ground 레이어 마스크 설정
+
+5. 지형(Ground) 설정:
+   - Sprite: 사각형
+   - BoxCollider2D 추가 (isTrigger = false)
+   - Layer: Ground
+
+6. 목적지(Goal) 설정:
+   - BoxCollider2D (isTrigger = true)
+   - GoalTrigger 컴포넌트 추가
+   - Tag: Goal
+
+7. 판정선(RhythmLine) 설정:
+   - X 위치: 스테이지 시작 왼쪽 끝 (-stageWidth/2)
+   - RhythmLineController의 startX, endX 값 확인
+
+8. 카메라(CameraFollow):
+   - Min/Max X, Y: 스테이지 크기에 맞게 설정
+   - Orthographic Size: 5~6 권장
+
+================================================================
+
+[ 4. EndingScene 씬 세팅 ]
+─────────────────────────────────────────────────────────────
+1. 빈 씬 생성 후 저장 (Assets/Scenes/EndingScene)
+2. 유니티 상단 메뉴 → BridgeRhythm → Setup EndingScene 클릭
+3. EndingController 오브젝트에서:
+   - Best Ending UI  → BestEndingUI  연결
+   - Normal Ending UI → NormalEndingUI 연결
+   - Bad Ending UI   → BadEndingUI   연결
+   - Total Score Text → TotalScoreText 연결
+   - Return Button onClick → EndingController.OnReturnToMainMenuClicked
+
+================================================================
+
+[ 5. 오디오 파일 준비 ]
+─────────────────────────────────────────────────────────────
+Assets/Audio 폴더에 다음 파일 추가 (WAV 또는 MP3):
+- piano_do.wav, piano_re.wav, ... piano_do2.wav (8개)
+- guitar_1.wav, guitar_2.wav ... (필요한 만큼)
+
+AudioClip Import Settings:
+- Load Type: Decompress On Load (짧은 효과음)
+- Compression Format: PCM 또는 Vorbis
+
+================================================================
+
+[ 6. 게임 흐름 요약 ]
+─────────────────────────────────────────────────────────────
+[빌드 페이즈]
+  키보드 1/2/... → 악기 선택
+  스페이스바 → 판정선 위치에 다리 생성 + 음표 재생
+  판정선이 끝에 도달 → 자동으로 플레이 페이즈 전환
+
+[플레이 페이즈]
+  방향키(A/D) → 이동
+  스페이스바    → 점프
+  목적지 도달  → 결과 화면 + 음악 감상
+  낙사          → 빌드 페이즈 재시작 (다리 초기화)
+
+[결과 화면]
+  만든 음악 자동 재생
+  효율 점수 + 등급(S/A/B/C/D) 표시
+  다음 스테이지 또는 재도전 선택
+
+[엔딩]
+  모든 스테이지 클리어 후 누적 효율 점수에 따라 3가지 엔딩
+  Best  (80점 이상): 진정한 음악가 엔딩
+  Normal(50점 이상): 일반 엔딩
+  Bad   (50점 미만): 소음 엔딩
+
+================================================================
