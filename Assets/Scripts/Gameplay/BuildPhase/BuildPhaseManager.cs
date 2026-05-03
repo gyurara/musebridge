@@ -1,15 +1,17 @@
 using UnityEngine;
 
 /// <summary>
-/// 빌드 페이즈 전체 흐름 관리
-/// [FIX] StartBuild 시 CameraFollow.SetOverviewMode() 호출 추가
-/// [FIX] OnLineReachedEnd 리스너 중복 등록 방지 (Remove → Add)
+/// 빌드 페이즈 흐름 관리
+/// [FIX] 리스너 중복 등록 방지 (RemoveListener → AddListener)
+/// [FIX] CameraFollow.SetOverviewMode() 호출
+/// [추가] StageProgressUI 연동 — 악기 선택 시 HUD 업데이트
+/// [추가] BGMManager.PlayBGMForCurrentPhase() — 빌드 시작 시 호출
 /// </summary>
 public class BuildPhaseManager : MonoBehaviour
 {
     public static BuildPhaseManager Instance { get; private set; }
 
-    private InstrumentData selectedInstrument;
+    private InstrumentData         selectedInstrument;
     private InstrumentSidebarButton currentSelectedButton;
 
     private void Awake()
@@ -21,35 +23,40 @@ public class BuildPhaseManager : MonoBehaviour
     public void StartBuild()
     {
         var stage = StageManager.Instance?.CurrentStage;
-        if (stage == null) { Debug.LogError("[BuildPhaseManager] 현재 스테이지 없음"); return; }
+        if (stage == null) { Debug.LogError("[BuildPhaseManager] CurrentStage == null"); return; }
 
-        // 스테이지 지형/장애물/픽업 재생성
         StageBuilder.Instance?.BuildFromData(stage);
 
-        // [FIX] 리스너 중복 방지: Remove 먼저
-        var rhythmLine = RhythmLineController.Instance;
-        if (rhythmLine != null)
+        var line = RhythmLineController.Instance;
+        if (line != null)
         {
-            rhythmLine.OnLineReachedEnd.RemoveListener(OnLineReachedEnd);
-            rhythmLine.Initialize(stage.rhythmLineSpeed, stage.stageWidth);
-            rhythmLine.OnLineReachedEnd.AddListener(OnLineReachedEnd);
-            rhythmLine.StartMoving();
+            line.OnLineReachedEnd.RemoveListener(OnLineReachedEnd);
+            line.Initialize(stage.rhythmLineSpeed, stage.stageWidth);
+            line.OnLineReachedEnd.AddListener(OnLineReachedEnd);
+            line.StartMoving();
         }
 
-        // [FIX] 빌드 페이즈 시작 시 카메라를 전체뷰로
         Camera.main?.GetComponent<CameraFollow>()?.SetOverviewMode();
 
         UIManager.Instance?.ShowBuildPhaseUI();
         UIManager.Instance?.RefreshInstrumentSidebar();
-
         AudioManager.Instance?.StartRecording();
 
         // 기본 악기 선택
         var instruments = StageManager.Instance?.OwnedInstruments;
         if (instruments != null && instruments.Count > 0)
+        {
             selectedInstrument = instruments[0];
+            StageProgressUI.Instance?.SetSelectedInstrument(selectedInstrument.instrumentName);
+        }
 
-        Debug.Log($"[BuildPhaseManager] 빌드 페이즈 시작 — Stage {stage.stageIndex + 1}");
+        // [추가] 스테이지 정보 HUD 갱신
+        StageProgressUI.Instance?.RefreshStageInfo();
+
+        // [추가] Build BGM
+        BGMManager.Instance?.PlayBGMForCurrentPhase();
+
+        Debug.Log($"[BuildPhaseManager] Build Phase — Stage {stage.stageIndex + 1}");
     }
 
     private void Update()
@@ -63,13 +70,10 @@ public class BuildPhaseManager : MonoBehaviour
     {
         var instruments = StageManager.Instance?.OwnedInstruments;
         if (instruments == null) return;
-        foreach (var instrument in instruments)
+        foreach (var inst in instruments)
         {
-            if (Input.GetKeyDown(instrument.activationKey))
-            {
-                selectedInstrument = instrument;
-                Debug.Log($"[BuildPhaseManager] 악기 선택: {instrument.instrumentName}");
-            }
+            if (Input.GetKeyDown(inst.activationKey))
+                SelectInstrument(inst);
         }
     }
 
@@ -96,13 +100,18 @@ public class BuildPhaseManager : MonoBehaviour
         currentSelectedButton?.SetSelected(false);
         currentSelectedButton = button;
         currentSelectedButton?.SetSelected(true);
+
+        // [추가] HUD 업데이트
+        if (instrument != null)
+            StageProgressUI.Instance?.SetSelectedInstrument(instrument.instrumentName);
+
         Debug.Log($"[BuildPhaseManager] 악기 선택: {instrument?.instrumentName}");
     }
 
     private void OnLineReachedEnd()
     {
         RhythmLineController.Instance?.OnLineReachedEnd.RemoveListener(OnLineReachedEnd);
-        Debug.Log("[BuildPhaseManager] 판정선 종료 → 플레이 페이즈 전환");
+        Debug.Log("[BuildPhaseManager] 판정선 종료 → Play Phase");
         GameManager.Instance?.StartPlayPhase();
     }
 }

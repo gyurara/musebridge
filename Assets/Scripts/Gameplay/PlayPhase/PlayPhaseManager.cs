@@ -2,9 +2,9 @@ using UnityEngine;
 
 /// <summary>
 /// 플레이 페이즈 흐름 관리
-/// [FIX] OnPlayerReachedGoal에서 AudioManager.PlayRecordedMusic() 직접 호출 제거
-///        → StageResultUI.ShowSequence()에서 delay 후 재생하므로 여기서 호출하면 두 번 재생됨
-/// [FIX] UIManager.ShowMusicReviewUI() 호출도 StageResultUI 없는 폴백 시에만 수행
+/// [FIX] OnPlayerFell → BGMManager.PlaySFXFall() 연결
+/// [FIX] OnPlayerReachedGoal → BGMManager.PlaySFXClear() 연결
+/// [FIX] StartPlay → BGMManager 페이즈 전환 알림
 /// </summary>
 public class PlayPhaseManager : MonoBehaviour
 {
@@ -23,11 +23,9 @@ public class PlayPhaseManager : MonoBehaviour
     {
         if (player == null)
         {
-            // 런타임에 Player 태그로 재탐색 (SceneSetup 후 변경됐을 경우 대비)
             var found = GameObject.FindWithTag("Player");
             if (found != null) player = found.GetComponent<PlayerController>();
         }
-
         if (player == null)
         {
             Debug.LogError("[PlayPhaseManager] PlayerController 미연결");
@@ -40,9 +38,11 @@ public class PlayPhaseManager : MonoBehaviour
         player.EnableControl();
         UIManager.Instance?.ShowPlayPhaseUI();
 
-        // [NOTE] 카메라 팔로우 활성화
         var cam = Camera.main?.GetComponent<CameraFollow>();
         if (cam != null) cam.SetFollowMode(player.transform);
+
+        // [FIX] 플레이 BGM 전환
+        BGMManager.Instance?.PlayBGMForCurrentPhase();
 
         Debug.Log("[PlayPhaseManager] 플레이 페이즈 시작");
     }
@@ -50,15 +50,16 @@ public class PlayPhaseManager : MonoBehaviour
     public void OnPlayerReachedGoal()
     {
         Debug.Log("[PlayPhaseManager] 목적지 도달!");
-
-        // [FIX] player가 null일 경우 대비
         player?.DisableControl();
 
+        // [FIX] 클리어 SFX
+        BGMManager.Instance?.PlaySFXClear();
+
         int efficiencyScore = EfficiencyScoreManager.Instance?.CalculateScore() ?? 0;
-        int usageCount = BridgeBuilder.Instance?.TotalUsageCount ?? 0;
+        int usageCount      = BridgeBuilder.Instance?.TotalUsageCount ?? 0;
         UIManager.Instance?.UpdateEfficiencyScore(efficiencyScore);
 
-        // 녹음된 음악 저장
+        // 음악 저장
         var stage = StageManager.Instance?.CurrentStage;
         if (stage != null && AudioManager.Instance != null
             && AudioManager.Instance.CurrentRecording.Count > 0)
@@ -68,17 +69,12 @@ public class PlayPhaseManager : MonoBehaviour
             MusicSaveSystem.Save(rec);
         }
 
-        // StageResultUI를 통해 결과 표시 + 음악 재생 (UI 내부에서 처리)
+        // 결과 UI
         var resultUI = Object.FindObjectOfType<StageResultUI>();
         if (resultUI != null)
-        {
-            // [FIX] PlayRecordedMusic은 StageResultUI.ShowSequence에서 delay 후 재생
-            // 여기서 직접 AudioManager.PlayRecordedMusic() 호출하지 않음
             resultUI.Show(efficiencyScore, usageCount);
-        }
         else
         {
-            // 폴백: StageResultUI 없으면 바로 음악 감상 + 스테이지 진행
             UIManager.Instance?.ShowMusicReviewUI();
             AudioManager.Instance?.PlayRecordedMusic();
             GameManager.Instance?.OnStageClear(efficiencyScore);
@@ -87,8 +83,12 @@ public class PlayPhaseManager : MonoBehaviour
 
     public void OnPlayerFell()
     {
-        Debug.Log("[PlayPhaseManager] 낙사! 빌드 페이즈 재시작");
+        Debug.Log("[PlayPhaseManager] 낙사!");
         player?.DisableControl();
+
+        // [FIX] 낙사 SFX
+        BGMManager.Instance?.PlaySFXFall();
+
         BridgeBuilder.Instance?.ClearAll();
         GameManager.Instance?.StartBuildPhase();
     }

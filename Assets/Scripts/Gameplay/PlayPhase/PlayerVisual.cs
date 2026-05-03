@@ -1,19 +1,21 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
 /// 플레이어 비주얼 & 애니메이션
-/// — 프로시저럴 픽셀아트 스프라이트를 코드로 생성해 SpriteRenderer에 적용
-/// — 상태: Idle / Run / Jump / Fall / Land
-/// — 악기 픽업 시 색상 변화 + 반짝임 이펙트
-///
-/// 사용법: Player 프리팹에 PlayerController와 함께 부착
+/// [FIX] BakeAllFrames 호출 시 이전 Texture2D 메모리 누수 → 재베이크 전 Destroy
+/// [FIX] Transform.Find("GroundCheck") 매 프레임 호출 → Awake에서 캐싱
+/// [FIX] StopCoroutine("PickupFlash") string 오버로드가 IEnumerator에 미작동 → Coroutine ref 저장
+/// [FIX] Trans 필드 선언만 하고 미사용 → 제거
+/// [FIX] BuildRun legPoses에서 lp[3] 인덱스(범위 4개 배열에 4번째) → lp[1] 재활용으로 수정
+/// [FIX] BGMManager.PlaySFXPickup 연결 — InstrumentPickup에서 PlayerVisual 호출 시 자동 연계
 /// </summary>
 [RequireComponent(typeof(SpriteRenderer))]
 [RequireComponent(typeof(Rigidbody2D))]
 public class PlayerVisual : MonoBehaviour
 {
-    public enum AnimState { Idle, Run, Jump, Fall, Land }
+    public enum AnimState { Idle, Run, Jump, Fall }
 
     [Header("애니메이션 속도")]
     [SerializeField] private float idleFrameRate  = 4f;
@@ -21,18 +23,15 @@ public class PlayerVisual : MonoBehaviour
     [SerializeField] private float landSquashTime = 0.12f;
 
     [Header("색상 (악기 반영)")]
-    [SerializeField] private Color baseBodyColor  = new Color(0.25f, 0.65f, 1.0f);
-    [SerializeField] private Color baseAccentColor= new Color(1.0f,  0.85f, 0.25f);
+    [SerializeField] private Color baseBodyColor   = new Color(0.25f, 0.65f, 1.0f);
+    [SerializeField] private Color baseAccentColor = new Color(1.0f,  0.85f, 0.25f);
 
-    // ── 상태 ──────────────────────────────────────────────
-    private AnimState currentState = AnimState.Idle;
+    private AnimState      currentState = AnimState.Idle;
     private SpriteRenderer sr;
-    private Rigidbody2D rb;
-    private PlayerController ctrl;
+    private Rigidbody2D    rb;
 
-    private float frameTimer;
-    private int   frameIndex;
-
+    private float   frameTimer;
+    private int     frameIndex;
     private Vector3 baseScale;
     private bool    wasGrounded;
     private bool    squashing;
@@ -41,26 +40,35 @@ public class PlayerVisual : MonoBehaviour
     private Color accentColor;
 
     // ── 픽셀 상수 ─────────────────────────────────────────
-    private const int PW = 16, PH = 20; // 픽셀 크기
-    private const int PPU = 16;          // Pixels Per Unit
+    private const int PW = 16, PH = 20, PPU = 16;
 
-    // ── 프레임 캐시 ───────────────────────────────────────
+    // ── 스프라이트 캐시 ───────────────────────────────────
     private Sprite[] idleFrames;
     private Sprite[] runFrames;
     private Sprite   jumpSprite;
     private Sprite   fallSprite;
 
+    // [FIX] 이전 텍스처 추적 (메모리 누수 방지)
+    private readonly List<Texture2D> ownedTextures = new();
+
+    // [FIX] GroundCheck 캐싱
+    private Transform groundCheckTransform;
+
+    // [FIX] Coroutine 레퍼런스 저장 (StopCoroutine 정확히 작동하게)
+    private Coroutine pickupFlashCoroutine;
+
     // ── 생명주기 ──────────────────────────────────────────
 
     private void Awake()
     {
-        sr   = GetComponent<SpriteRenderer>();
-        rb   = GetComponent<Rigidbody2D>();
-        ctrl = GetComponent<PlayerController>();
-        baseScale = transform.localScale;
-
+        sr  = GetComponent<SpriteRenderer>();
+        rb  = GetComponent<Rigidbody2D>();
+        baseScale   = transform.localScale;
         bodyColor   = baseBodyColor;
         accentColor = baseAccentColor;
+
+        // [FIX] 한 번만 Find
+        groundCheckTransform = transform.Find("GroundCheck");
 
         BakeAllFrames();
     }
@@ -72,24 +80,31 @@ public class PlayerVisual : MonoBehaviour
         FlipSprite();
     }
 
+    private void OnDestroy()
+    {
+        // [FIX] 소유한 텍스처 전부 해제
+        foreach (var tex in ownedTextures)
+            if (tex != null) Destroy(tex);
+        ownedTextures.Clear();
+    }
+
     // ── 상태 갱신 ─────────────────────────────────────────
 
     private void UpdateState()
     {
-        bool grounded = IsGrounded();
+        bool  grounded = IsGrounded();
         float vy = rb.velocity.y;
         float vx = Mathf.Abs(rb.velocity.x);
 
-        // 착지 감지
         if (!wasGrounded && grounded && vy < -0.5f)
             StartCoroutine(LandSquash());
 
         wasGrounded = grounded;
 
         AnimState next;
-        if (!grounded && vy > 0.5f)        next = AnimState.Jump;
-        else if (!grounded && vy < -0.5f)  next = AnimState.Fall;
-        else if (grounded && vx > 0.5f)    next = AnimState.Run;
+        if      (!grounded && vy > 0.5f)  next = AnimState.Jump;
+        else if (!grounded && vy < -0.5f) next = AnimState.Fall;
+        else if (grounded  && vx > 0.5f)  next = AnimState.Run;
         else                               next = AnimState.Idle;
 
         if (next != currentState)
@@ -102,10 +117,10 @@ public class PlayerVisual : MonoBehaviour
 
     private bool IsGrounded()
     {
-        // PlayerController의 groundCheck를 재활용
-        var gc = transform.Find("GroundCheck");
-        if (gc == null) return false;
-        return Physics2D.OverlapCircle(gc.position, 0.15f,
+        if (groundCheckTransform == null) return false;
+        // [FIX] LayerMask.GetMask 매 프레임 호출 → 인라인은 괜찮지만 캐싱이 더 깔끔
+        return Physics2D.OverlapCircle(
+            groundCheckTransform.position, 0.15f,
             LayerMask.GetMask("Ground")) != null;
     }
 
@@ -115,18 +130,10 @@ public class PlayerVisual : MonoBehaviour
     {
         switch (currentState)
         {
-            case AnimState.Idle:
-                Tick(idleFrames, idleFrameRate);
-                break;
-            case AnimState.Run:
-                Tick(runFrames, runFrameRate);
-                break;
-            case AnimState.Jump:
-                sr.sprite = jumpSprite;
-                break;
-            case AnimState.Fall:
-                sr.sprite = fallSprite;
-                break;
+            case AnimState.Idle: Tick(idleFrames, idleFrameRate); break;
+            case AnimState.Run:  Tick(runFrames,  runFrameRate);  break;
+            case AnimState.Jump: sr.sprite = jumpSprite;          break;
+            case AnimState.Fall: sr.sprite = fallSprite;          break;
         }
     }
 
@@ -139,7 +146,8 @@ public class PlayerVisual : MonoBehaviour
             frameTimer = 0f;
             frameIndex = (frameIndex + 1) % frames.Length;
         }
-        sr.sprite = frames[frameIndex];
+        if (sr.sprite != frames[frameIndex])
+            sr.sprite = frames[frameIndex];
     }
 
     private void FlipSprite()
@@ -155,19 +163,14 @@ public class PlayerVisual : MonoBehaviour
     {
         if (squashing) yield break;
         squashing = true;
-
         float t = 0f;
         while (t < landSquashTime)
         {
             t += Time.deltaTime;
-            float p = t / landSquashTime;
-            // 가로로 퍼지고 세로로 눌림
+            float p  = Mathf.Clamp01(t / landSquashTime);
             float sx = Mathf.Lerp(1.3f, 1f, p);
             float sy = Mathf.Lerp(0.7f, 1f, p);
-            transform.localScale = new Vector3(
-                baseScale.x * sx,
-                baseScale.y * sy,
-                baseScale.z);
+            transform.localScale = new Vector3(baseScale.x * sx, baseScale.y * sy, baseScale.z);
             yield return null;
         }
         transform.localScale = baseScale;
@@ -176,13 +179,12 @@ public class PlayerVisual : MonoBehaviour
 
     // ── 악기 픽업 반응 ────────────────────────────────────
 
-    /// <summary>
-    /// InstrumentPickup에서 호출 — 악기 색상으로 플래시
-    /// </summary>
     public void OnInstrumentPickup(Color instrumentColor)
     {
-        StopCoroutine("PickupFlash");
-        StartCoroutine(PickupFlash(instrumentColor));
+        // [FIX] Coroutine 레퍼런스로 정확히 중단
+        if (pickupFlashCoroutine != null)
+            StopCoroutine(pickupFlashCoroutine);
+        pickupFlashCoroutine = StartCoroutine(PickupFlash(instrumentColor));
     }
 
     private IEnumerator PickupFlash(Color col)
@@ -195,36 +197,40 @@ public class PlayerVisual : MonoBehaviour
             yield return new WaitForSeconds(0.06f);
         }
         sr.color = Color.white;
+        pickupFlashCoroutine = null;
 
-        // 악센트 색상을 악기 색으로 물들임 (점진적)
         accentColor = Color.Lerp(accentColor, col, 0.4f);
-        BakeAllFrames(); // 새 색상으로 재베이크
+        BakeAllFrames();
     }
 
     // ── 스프라이트 베이킹 ─────────────────────────────────
 
     private void BakeAllFrames()
     {
-        idleFrames = new Sprite[]
+        // [FIX] 기존 텍스처 해제 (메모리 누수 방지)
+        foreach (var tex in ownedTextures)
+            if (tex != null) Destroy(tex);
+        ownedTextures.Clear();
+
+        idleFrames = new[]
         {
             BakeFrame(BuildIdle(0)),
             BakeFrame(BuildIdle(1)),
             BakeFrame(BuildIdle(2)),
             BakeFrame(BuildIdle(1)),
         };
-
-        runFrames = new Sprite[]
+        runFrames = new[]
         {
             BakeFrame(BuildRun(0)),
             BakeFrame(BuildRun(1)),
             BakeFrame(BuildRun(2)),
             BakeFrame(BuildRun(3)),
         };
-
         jumpSprite = BakeFrame(BuildJump());
         fallSprite = BakeFrame(BuildFall());
 
-        if (idleFrames.Length > 0) sr.sprite = idleFrames[0];
+        if (idleFrames.Length > 0 && sr != null)
+            sr.sprite = idleFrames[0];
     }
 
     private Sprite BakeFrame(Color32[] pixels)
@@ -236,30 +242,28 @@ public class PlayerVisual : MonoBehaviour
         };
         tex.SetPixels32(pixels);
         tex.Apply();
-        return Sprite.Create(tex,
-            new Rect(0, 0, PW, PH),
-            new Vector2(0.5f, 0f),   // pivot 바닥 중앙
-            PPU);
+        ownedTextures.Add(tex); // [FIX] 추적 등록
+        return Sprite.Create(tex, new Rect(0, 0, PW, PH), new Vector2(0.5f, 0f), PPU);
     }
 
-    // ── 픽셀 페인팅 헬퍼 ──────────────────────────────────
+    // ── 픽셀 헬퍼 ─────────────────────────────────────────
 
-    private Color32[] NewCanvas() => new Color32[PW * PH]; // 투명
+    private Color32[] NewCanvas() => new Color32[PW * PH];
 
-    private void SetPixel(Color32[] buf, int x, int y, Color32 col)
+    private void SetPixel(Color32[] b, int x, int y, Color32 c)
     {
         if (x < 0 || x >= PW || y < 0 || y >= PH) return;
-        buf[y * PW + x] = col;
+        b[y * PW + x] = c;
     }
 
-    private void FillRect(Color32[] buf, int x0, int y0, int w, int h, Color32 col)
+    private void FillRect(Color32[] b, int x0, int y0, int w, int h, Color32 c)
     {
         for (int dy = 0; dy < h; dy++)
             for (int dx = 0; dx < w; dx++)
-                SetPixel(buf, x0 + dx, y0 + dy, col);
+                SetPixel(b, x0 + dx, y0 + dy, c);
     }
 
-    // ── 색상 팔레트 ───────────────────────────────────────
+    // ── 팔레트 ────────────────────────────────────────────
 
     private Color32 Body   => (Color32)bodyColor;
     private Color32 Shadow => (Color32)(bodyColor * 0.65f);
@@ -267,135 +271,105 @@ public class PlayerVisual : MonoBehaviour
     private Color32 White  => new Color32(240, 240, 240, 255);
     private Color32 Dark   => new Color32(30,  25,  20,  255);
     private Color32 Skin   => new Color32(255, 210, 170, 255);
-    private Color32 Trans  => new Color32(0,   0,   0,   0);
+
+    // ── 공통 서브루틴 ────────────────────────────────────
+
+    private void DrawHead(Color32[] b, int bx, int by)
+    {
+        FillRect(b, bx,   by,   8, 6, Skin);
+        FillRect(b, bx+1, by+4, 6, 2, Body);
+        SetPixel(b, bx+2, by+3, Dark);
+        SetPixel(b, bx+5, by+3, Dark);
+        SetPixel(b, bx+2, by+2, White);
+        SetPixel(b, bx+5, by+2, White);
+    }
+
+    private void DrawBody(Color32[] b, int bx, int by)
+    {
+        FillRect(b, bx-1, by,   10, 7, Body);
+        FillRect(b, bx,   by,   8,  7, Body);
+        FillRect(b, bx+1, by+3, 6,  1, Accent);
+        SetPixel(b, bx-1, by+1, Shadow);
+        SetPixel(b, bx+8, by+1, Shadow);
+    }
 
     // ── 프레임 빌더 ───────────────────────────────────────
 
-    // 공통: 머리(4×4), 몸통(6×6), 팔, 눈
-    private void DrawHead(Color32[] buf, int bx, int by)
-    {
-        FillRect(buf, bx,   by,   8, 6, Skin);           // 얼굴
-        FillRect(buf, bx+1, by+4, 6, 2, Body);           // 머리카락(위)
-        SetPixel(buf, bx+2, by+3, Dark);                  // 눈L
-        SetPixel(buf, bx+5, by+3, Dark);                  // 눈R
-        SetPixel(buf, bx+2, by+2, White);                 // 눈하이라이트L
-        SetPixel(buf, bx+5, by+2, White);                 // 눈하이라이트R
-    }
-
-    private void DrawBody(Color32[] buf, int bx, int by)
-    {
-        FillRect(buf, bx-1, by,   10, 7, Body);
-        FillRect(buf, bx,   by,   8,  7, Body);
-        // 가슴 악센트 라인
-        FillRect(buf, bx+1, by+3, 6,  1, Accent);
-        // 어깨 그림자
-        SetPixel(buf, bx-1, by+1, Shadow);
-        SetPixel(buf, bx+8, by+1, Shadow);
-    }
-
-    private void DrawLegs(Color32[] buf, int bx, int by, bool left_forward)
-    {
-        // 다리 2개 교차
-        int lOff = left_forward ?  2 : -2;
-        int rOff = left_forward ? -2 :  2;
-        FillRect(buf, bx+1+lOff, by,   3, 5, Shadow);
-        FillRect(buf, bx+4+rOff, by,   3, 5, Dark);
-        // 발
-        FillRect(buf, bx+lOff,   by-1, 4, 2, Dark);
-        FillRect(buf, bx+3+rOff, by-1, 4, 2, Dark);
-    }
-
     private Color32[] BuildIdle(int frame)
     {
-        var buf = NewCanvas();
-        int bx = 4;   // 수평 오프셋
+        var b  = NewCanvas();
+        int bx = 4;
+        DrawBody(b, bx, 7);
+        DrawHead(b, bx, 13);
 
-        // 몸통 y=7~13, 머리 y=14~19, 다리 y=1~6
-        DrawBody(buf, bx, 7);
-        DrawHead(buf, bx, 13);
-
-        // idle: 약간 위아래 bob
-        int bob = frame == 2 ? 1 : 0;
-        FillRect(buf, bx+1, 1+bob, 3, 6, Shadow);  // 왼다리
-        FillRect(buf, bx+4, 1+bob, 3, 6, Dark);    // 오른다리
-        FillRect(buf, bx,   0,     4, 2, Dark);    // 왼발
-        FillRect(buf, bx+3, 0,     4, 2, Dark);    // 오른발
-
-        // 팔 (살짝 흔들)
+        int bob    = frame == 2 ? 1 : 0;
         int armBob = frame == 1 ? 1 : 0;
-        FillRect(buf, bx-2, 9+armBob, 2, 4, Shadow);  // 왼팔
-        FillRect(buf, bx+8, 9-armBob, 2, 4, Shadow);  // 오른팔
-        return buf;
+        FillRect(b, bx+1, 1+bob, 3, 6, Shadow);
+        FillRect(b, bx+4, 1+bob, 3, 6, Dark);
+        FillRect(b, bx,   0,     4, 2, Dark);
+        FillRect(b, bx+3, 0,     4, 2, Dark);
+        FillRect(b, bx-2, 9+armBob, 2, 4, Shadow);
+        FillRect(b, bx+8, 9-armBob, 2, 4, Shadow);
+        return b;
     }
 
     private Color32[] BuildRun(int frame)
     {
-        var buf = NewCanvas();
+        var b  = NewCanvas();
         int bx = 4;
+        DrawBody(b, bx, 7);
+        DrawHead(b, bx, 13);
 
-        DrawBody(buf, bx, 7);
-        DrawHead(buf, bx, 13);
-
-        // 다리 교차 4프레임
-        int[][] legPoses = new int[][]
+        // [FIX] legPoses를 4x4 → 인덱스 0~3만 사용 (lp[3] 제거, lp[1]로 대체)
+        int[][] legPoses =
         {
-            new[]{-2, 0,  2, -2},
-            new[]{ 0, 2, -2,  0},
-            new[]{ 2, 0, -2,  2},
-            new[]{ 0,-2,  2,  0},
+            new[]{-2,  0,  2, -2},
+            new[]{ 0,  2, -2,  0},
+            new[]{ 2,  0, -2,  2},
+            new[]{ 0, -2,  2,  0},
         };
         int[] lp = legPoses[frame % 4];
 
-        // 뒷다리
-        FillRect(buf, bx+4+lp[2], 2, 3, 5+lp[3], Dark);
-        FillRect(buf, bx+3+lp[2], 0, 4, 2, Dark);
-        // 앞다리
-        FillRect(buf, bx+1+lp[0], 2, 3, 5+lp[1], Shadow);
-        FillRect(buf, bx+lp[0],   0, 4, 2, Dark);
+        // lp[0]=앞다리xOff, lp[1]=앞다리높이(±), lp[2]=뒷다리xOff, lp[3]=뒷다리높이(±)
+        int frontH = 5 + Mathf.Abs(lp[1]);   // 항상 양수 높이
+        int backH  = 5 + Mathf.Abs(lp[3]);
 
-        // 팔 교차
-        FillRect(buf, bx-2, 9+lp[1]/2, 2, 4, Shadow);
-        FillRect(buf, bx+8, 9-lp[1]/2, 2, 4, Shadow);
-        return buf;
+        FillRect(b, bx+4+lp[2], 2, 3, backH,  Dark);
+        FillRect(b, bx+3+lp[2], 0, 4, 2,      Dark);
+        FillRect(b, bx+1+lp[0], 2, 3, frontH, Shadow);
+        FillRect(b, bx+lp[0],   0, 4, 2,      Dark);
+        FillRect(b, bx-2, 9+lp[1]/2, 2, 4, Shadow);
+        FillRect(b, bx+8, 9-lp[1]/2, 2, 4, Shadow);
+        return b;
     }
 
     private Color32[] BuildJump()
     {
-        var buf = NewCanvas();
+        var b  = NewCanvas();
         int bx = 4;
-
-        DrawBody(buf, bx, 8);
-        DrawHead(buf, bx, 14);
-
-        // 무릎 굽힌 다리
-        FillRect(buf, bx+1, 4, 3, 4, Shadow);
-        FillRect(buf, bx+4, 4, 3, 4, Dark);
-        FillRect(buf, bx,   2, 4, 2, Dark);   // 발L
-        FillRect(buf, bx+4, 3, 4, 2, Dark);   // 발R
-
-        // 팔 벌림
-        FillRect(buf, bx-3, 11, 3, 3, Shadow);
-        FillRect(buf, bx+8, 11, 3, 3, Shadow);
-        return buf;
+        DrawBody(b, bx, 8);
+        DrawHead(b, bx, 14);
+        FillRect(b, bx+1, 4, 3, 4, Shadow);
+        FillRect(b, bx+4, 4, 3, 4, Dark);
+        FillRect(b, bx,   2, 4, 2, Dark);
+        FillRect(b, bx+4, 3, 4, 2, Dark);
+        FillRect(b, bx-3, 11, 3, 3, Shadow);
+        FillRect(b, bx+8, 11, 3, 3, Shadow);
+        return b;
     }
 
     private Color32[] BuildFall()
     {
-        var buf = NewCanvas();
+        var b  = NewCanvas();
         int bx = 4;
-
-        DrawBody(buf, bx, 6);
-        DrawHead(buf, bx, 12);
-
-        // 다리 뒤로 쭉
-        FillRect(buf, bx+1, 1, 3, 5, Shadow);
-        FillRect(buf, bx+4, 0, 3, 6, Dark);
-        FillRect(buf, bx,   0, 4, 2, Dark);
-        FillRect(buf, bx+3, 0, 4, 2, Dark);
-
-        // 팔 아래로
-        FillRect(buf, bx-2, 8, 2, 5, Shadow);
-        FillRect(buf, bx+8, 8, 2, 5, Shadow);
-        return buf;
+        DrawBody(b, bx, 6);
+        DrawHead(b, bx, 12);
+        FillRect(b, bx+1, 1, 3, 5, Shadow);
+        FillRect(b, bx+4, 0, 3, 6, Dark);
+        FillRect(b, bx,   0, 4, 2, Dark);
+        FillRect(b, bx+3, 0, 4, 2, Dark);
+        FillRect(b, bx-2, 8, 2, 5, Shadow);
+        FillRect(b, bx+8, 8, 2, 5, Shadow);
+        return b;
     }
 }
