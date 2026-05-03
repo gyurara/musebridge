@@ -36,7 +36,7 @@ public class SceneSetupEditor : EditorWindow
         CreateText(root.transform, "SubtitleText", "Make a bridge with music",
             new Vector2(0, 20), new Vector2(600, 50), 24);
         CreateButton(root.transform, "StartButton", "START", new Vector2(0, -80));
-        CreateButton(root.transform, "QuitButton", "QUIT", new Vector2(0, -160));
+        CreateButton(root.transform, "QuitButton",  "QUIT",  new Vector2(0, -160));
 
         var ctrl = new GameObject("MainMenuController");
         ctrl.AddComponent<MainMenuController>();
@@ -66,10 +66,29 @@ public class SceneSetupEditor : EditorWindow
         badUI.transform.SetParent(root.transform, false);
         CreateText(badUI.transform, "Label", "Noise covered the world...", Vector2.zero, new Vector2(700, 80), 36);
 
-        CreateButton(root.transform, "ReturnButton", "TITLE", new Vector2(0, -150));
+        var retBtn = CreateButton(root.transform, "ReturnButton", "TITLE", new Vector2(0, -150));
 
-        var ctrl = new GameObject("EndingController");
-        ctrl.AddComponent<EndingController>();
+        var ctrlObj = new GameObject("EndingController");
+        var ctrl = ctrlObj.AddComponent<EndingController>();
+
+        // EndingController 자동 연결
+        var so = new SerializedObject(ctrl);
+        so.FindProperty("bestEndingUI").objectReferenceValue = bestUI;
+        so.FindProperty("normalEndingUI").objectReferenceValue = normalUI;
+        so.FindProperty("badEndingUI").objectReferenceValue = badUI;
+        so.FindProperty("totalScoreText").objectReferenceValue =
+            GameObject.Find("TotalScoreText")?.GetComponent<TextMeshProUGUI>();
+        so.ApplyModifiedProperties();
+
+        // ReturnButton → OnReturnToMainMenuClicked 연결
+        var btnComp = retBtn.GetComponent<Button>();
+        if (btnComp != null)
+        {
+            var serialBtn = new SerializedObject(btnComp);
+            // 에디터에서 직접 연결은 Inspector에서 하거나, AddListener는 런타임 전용
+            // → 간단히 EndingController.OnReturnToMainMenuClicked을 Inspector에서 연결할 것을 주석으로 안내
+            Debug.Log("[SceneSetup] ReturnButton의 onClick에 EndingController.OnReturnToMainMenuClicked을 Inspector에서 연결하세요.");
+        }
 
         MarkSceneDirty();
         Debug.Log("[SceneSetup] EndingScene 설정 완료! Ctrl+S 로 저장하세요.");
@@ -91,7 +110,7 @@ public class SceneSetupEditor : EditorWindow
         AddTo<EfficiencyScoreManager>(managers);
         AddTo<StageBuilder>(managers);
 
-        // AudioSource 전용 자식 오브젝트 생성
+        // AudioSource 전용 자식
         var sfxObj = new GameObject("SfxSource");
         sfxObj.transform.SetParent(managers.transform);
         var sfxSrc = sfxObj.AddComponent<AudioSource>();
@@ -102,7 +121,7 @@ public class SceneSetupEditor : EditorWindow
         var musicSrc = musicObj.AddComponent<AudioSource>();
         musicSrc.playOnAwake = false;
 
-        // AudioManager에 자동 연결
+        // AudioManager 자동 연결
         var so = new SerializedObject(audioManagerComp);
         so.FindProperty("sfxSource").objectReferenceValue = sfxSrc;
         so.FindProperty("musicSource").objectReferenceValue = musicSrc;
@@ -186,47 +205,103 @@ public class SceneSetupEditor : EditorWindow
         playRt.anchoredPosition = Vector2.zero;
 
         // 효율 점수 텍스트
-        CreateText(root.transform, "EfficiencyScoreText", "Score: 0",
+        var effText = CreateText(root.transform, "EfficiencyScoreText", "Score: 0",
             new Vector2(-10, -10), new Vector2(200, 40), 20);
 
-        // 결과 패널
-        var resultPanel = new GameObject("ResultPanel");
-        resultPanel.transform.SetParent(root.transform, false);
-        var resultImg = resultPanel.AddComponent<Image>();
-        resultImg.color = new Color(0, 0, 0, 0.7f);
-        var resultRt = resultPanel.GetComponent<RectTransform>();
-        resultRt.anchorMin = new Vector2(0.5f, 0.5f);
-        resultRt.anchorMax = new Vector2(0.5f, 0.5f);
-        resultRt.pivot = new Vector2(0.5f, 0.5f);
-        resultRt.sizeDelta = new Vector2(500, 400);
-        resultRt.anchoredPosition = Vector2.zero;
-        resultPanel.AddComponent<StageResultUI>();
-        resultPanel.SetActive(false);
+        // 음악 감상 패널 (뮤직 리뷰 UI용)
+        var musicPanel = new GameObject("MusicReviewPanel");
+        musicPanel.transform.SetParent(root.transform, false);
+        var musicImg = musicPanel.AddComponent<Image>();
+        musicImg.color = new Color(0f, 0f, 0f, 0.5f);
+        var musicRt = musicPanel.GetComponent<RectTransform>();
+        musicRt.anchorMin = Vector2.zero;
+        musicRt.anchorMax = Vector2.one;
+        musicRt.offsetMin = musicRt.offsetMax = Vector2.zero;
+        var musicText = CreateText(musicPanel.transform, "MusicReviewText", "당신이 만든 음악을 감상하세요!",
+            Vector2.zero, new Vector2(700, 80), 28);
+        musicPanel.SetActive(false);
+
+        // [FIX] StageResultUI를 결과 패널에 올바르게 생성 + 필드 연결
+        var resultPanelObj = SetupResultPanel(root.transform);
 
         // UIManager 자동 연결
-        var uiManagerObj = GameObject.Find("UIManager");
-        if (uiManagerObj != null)
+        var uiManagerGO = GameObject.Find("UIManager");
+        if (uiManagerGO != null)
         {
-            var uiManager = uiManagerObj.GetComponent<UIManager>();
+            var uiManager = uiManagerGO.GetComponent<UIManager>();
             if (uiManager != null)
             {
                 var so = new SerializedObject(uiManager);
                 so.FindProperty("buildPhasePanel").objectReferenceValue = buildPanel;
                 so.FindProperty("playPhasePanel").objectReferenceValue = playPanel;
+                so.FindProperty("musicReviewPanel").objectReferenceValue = musicPanel;
+                so.FindProperty("musicReviewText").objectReferenceValue = musicText;
                 so.FindProperty("instrumentSidebarParent").objectReferenceValue = sidebar.transform;
-                so.FindProperty("efficiencyScoreText").objectReferenceValue =
-                    GameObject.Find("EfficiencyScoreText")?.GetComponent<TextMeshProUGUI>();
+                so.FindProperty("efficiencyScoreText").objectReferenceValue = effText;
                 so.ApplyModifiedProperties();
             }
         }
     }
 
-    // ── 레벨 지오메트리 (지형/목적지/플레이어) ─────────────
+    /// <summary>
+    /// [FIX] StageResultUI 패널 생성 + 모든 필드(resultPanel, canvasGroup, 텍스트들, 버튼들) 자동 연결
+    /// 원본 코드는 resultPanel 필드 연결 없이 SetActive(false)만 했음 → Show()에서 null 오류
+    /// </summary>
+    private static GameObject SetupResultPanel(Transform parent)
+    {
+        // 바깥 래퍼 (StageResultUI 컴포넌트를 품는 오브젝트)
+        var wrapper = new GameObject("StageResultUIRoot");
+        wrapper.transform.SetParent(parent, false);
+        var wrapperRt = wrapper.AddComponent<RectTransform>();
+        wrapperRt.anchorMin = Vector2.zero;
+        wrapperRt.anchorMax = Vector2.one;
+        wrapperRt.offsetMin = wrapperRt.offsetMax = Vector2.zero;
+        var stageResultUI = wrapper.AddComponent<StageResultUI>();
+
+        // 실제 패널 (어둡고 중앙 정렬)
+        var panel = new GameObject("ResultPanel");
+        panel.transform.SetParent(wrapper.transform, false);
+        var panelImg = panel.AddComponent<Image>();
+        panelImg.color = new Color(0.05f, 0.05f, 0.1f, 0.88f);
+        var panelRt = panel.GetComponent<RectTransform>();
+        panelRt.anchorMin = new Vector2(0.5f, 0.5f);
+        panelRt.anchorMax = new Vector2(0.5f, 0.5f);
+        panelRt.pivot = new Vector2(0.5f, 0.5f);
+        panelRt.sizeDelta = new Vector2(520, 420);
+        panelRt.anchoredPosition = Vector2.zero;
+        var cg = panel.AddComponent<CanvasGroup>();
+
+        // 텍스트들
+        var stageNameTxt   = CreateText(panel.transform, "StageNameText",   "Stage Clear!",       new Vector2(0, 165), new Vector2(480, 50), 30);
+        var scoreTxt       = CreateText(panel.transform, "ScoreText",        "효율 점수: 0",         new Vector2(0, 110), new Vector2(480, 40), 24);
+        var gradeTxt       = CreateText(panel.transform, "GradeText",        "A",                  new Vector2(0, 55),  new Vector2(160, 70), 52);
+        var usageTxt       = CreateText(panel.transform, "UsageCountText",   "악기 사용 횟수: 0",    new Vector2(0, 10),  new Vector2(480, 36), 20);
+        var musicReviewLbl = CreateText(panel.transform, "MusicReviewLabel", "잠시 후 음악이 재생됩니다...", new Vector2(0, -35), new Vector2(480, 36), 18);
+
+        // 버튼들
+        var nextBtn  = CreateButton(panel.transform, "NextStageButton", "다음 스테이지", new Vector2(90,  -145));
+        var retryBtn = CreateButton(panel.transform, "RetryButton",     "다시 도전",    new Vector2(-90, -145));
+
+        panel.SetActive(false); // 시작 시 숨김
+
+        // StageResultUI 필드 연결
+        var so = new SerializedObject(stageResultUI);
+        so.FindProperty("resultPanel").objectReferenceValue     = panel;
+        so.FindProperty("canvasGroup").objectReferenceValue     = cg;
+        so.FindProperty("stageNameText").objectReferenceValue   = stageNameTxt;
+        so.FindProperty("scoreText").objectReferenceValue       = scoreTxt;
+        so.FindProperty("gradeText").objectReferenceValue       = gradeTxt;
+        so.FindProperty("usageCountText").objectReferenceValue  = usageTxt;
+        so.FindProperty("musicReviewLabel").objectReferenceValue= musicReviewLbl;
+        so.FindProperty("nextStageButton").objectReferenceValue = nextBtn.GetComponent<Button>();
+        so.FindProperty("retryButton").objectReferenceValue     = retryBtn.GetComponent<Button>();
+        so.ApplyModifiedProperties();
+
+        return wrapper;
+    }
 
     private static void SetupLevelGeometry()
     {
-        // StageBuilder가 런타임에 스테이지별 지형/장애물을 스폰하므로
-        // 이 메서드는 플레이어와 시작 위치만 고정 배치
         new GameObject("--- LEVEL ---");
 
         var playerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Player.prefab");
@@ -240,7 +315,7 @@ public class SceneSetupEditor : EditorWindow
         startPos.transform.position = new Vector3(-11f, 0f, 0f);
     }
 
-    // ── 생성된 자산 자동 연결 ──────────────────────────────
+    // ── 자산 자동 연결 ──────────────────────────────────────
 
     private static void AutoWireAssets()
     {
@@ -263,18 +338,18 @@ public class SceneSetupEditor : EditorWindow
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             if (prop != null && prefab != null) prop.objectReferenceValue = prefab;
         }
-        Set("movingObstaclePrefab", "Assets/Prefabs/MovingObstacle.prefab");
+        Set("movingObstaclePrefab",  "Assets/Prefabs/MovingObstacle.prefab");
         Set("fallingObstaclePrefab", "Assets/Prefabs/FallingObstacle.prefab");
-        Set("windZonePrefab", "Assets/Prefabs/WindZone.prefab");
-        Set("spikePrefab", "Assets/Prefabs/Spike.prefab");
-        Set("bouncerPrefab", "Assets/Prefabs/Bouncer.prefab");
-        Set("gravityZonePrefab", "Assets/Prefabs/GravityZone.prefab");
-        Set("timedGatePrefab", "Assets/Prefabs/TimedGate.prefab");
-        Set("laserPrefab", "Assets/Prefabs/Laser.prefab");
-        Set("iceZonePrefab", "Assets/Prefabs/IceZone.prefab");
-        Set("instrumentPickupPrefab", "Assets/Prefabs/InstrumentPickup.prefab");
-        Set("groundPrefab", "Assets/Prefabs/Ground.prefab");
-        Set("goalPrefab", "Assets/Prefabs/Goal.prefab");
+        Set("windZonePrefab",        "Assets/Prefabs/WindZone.prefab");
+        Set("spikePrefab",           "Assets/Prefabs/Spike.prefab");
+        Set("bouncerPrefab",         "Assets/Prefabs/Bouncer.prefab");
+        Set("gravityZonePrefab",     "Assets/Prefabs/GravityZone.prefab");
+        Set("timedGatePrefab",       "Assets/Prefabs/TimedGate.prefab");
+        Set("laserPrefab",           "Assets/Prefabs/Laser.prefab");
+        Set("iceZonePrefab",         "Assets/Prefabs/IceZone.prefab");
+        Set("instrumentPickupPrefab","Assets/Prefabs/InstrumentPickup.prefab");
+        Set("groundPrefab",          "Assets/Prefabs/Ground.prefab");
+        Set("goalPrefab",            "Assets/Prefabs/Goal.prefab");
         so.ApplyModifiedProperties();
     }
 
@@ -301,6 +376,7 @@ public class SceneSetupEditor : EditorWindow
             var sd = AssetDatabase.LoadAssetAtPath<StageData>(path);
             if (sd != null) list.Add(sd);
         }
+        // [FIX] stageIndex(0-based) 기준으로 정렬
         list.Sort((a, b) => a.stageIndex.CompareTo(b.stageIndex));
 
         var so = new SerializedObject(sm);
@@ -309,7 +385,6 @@ public class SceneSetupEditor : EditorWindow
         for (int i = 0; i < list.Count; i++)
             prop.GetArrayElementAtIndex(i).objectReferenceValue = list[i];
 
-        // 기본 악기 = 피아노 (있으면)
         var piano = AssetDatabase.LoadAssetAtPath<InstrumentData>("Assets/ScriptableObjects/Piano.asset");
         if (piano != null)
             so.FindProperty("defaultInstrument").objectReferenceValue = piano;
@@ -332,12 +407,12 @@ public class SceneSetupEditor : EditorWindow
         var pm = Object.FindObjectOfType<PlayPhaseManager>();
         if (pm == null) return;
 
-        var player = GameObject.FindWithTag("Player");
+        var player   = GameObject.FindWithTag("Player");
         var startPos = GameObject.Find("PlayerStartPosition");
         if (player == null) return;
 
         var so = new SerializedObject(pm);
-        so.FindProperty("player").objectReferenceValue = player.GetComponent<PlayerController>();
+        so.FindProperty("player").objectReferenceValue              = player.GetComponent<PlayerController>();
         if (startPos != null)
             so.FindProperty("playerStartPosition").objectReferenceValue = startPos.transform;
         so.ApplyModifiedProperties();
@@ -345,7 +420,7 @@ public class SceneSetupEditor : EditorWindow
 
     private static void WireCameraFollow()
     {
-        var cam = Object.FindObjectOfType<CameraFollow>();
+        var cam    = Object.FindObjectOfType<CameraFollow>();
         var player = GameObject.FindWithTag("Player");
         if (cam == null || player == null) return;
 
@@ -354,8 +429,6 @@ public class SceneSetupEditor : EditorWindow
         if (targetProp != null) targetProp.objectReferenceValue = player.transform;
         so.ApplyModifiedProperties();
     }
-
-    // ── 씬 저장 표시 ──────────────────────────────────────
 
     private static void MarkSceneDirty()
     {
@@ -393,14 +466,14 @@ public class SceneSetupEditor : EditorWindow
         tmp.text = text;
         tmp.fontSize = fontSize;
         tmp.alignment = TextAlignmentOptions.Center;
-        tmp.color = Color.black;
+        tmp.color = Color.white;  // [FIX] 어두운 패널 배경 위에서 보이도록 흰색
         var rt = go.GetComponent<RectTransform>();
         rt.anchoredPosition = anchoredPos;
         rt.sizeDelta = size;
         return tmp;
     }
 
-    private static Button CreateButton(Transform parent, string name, string label, Vector2 pos)
+    private static GameObject CreateButton(Transform parent, string name, string label, Vector2 pos)
     {
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
@@ -415,7 +488,7 @@ public class SceneSetupEditor : EditorWindow
         textGo.transform.SetParent(go.transform, false);
         var tmp = textGo.AddComponent<TextMeshProUGUI>();
         tmp.text = label;
-        tmp.fontSize = 28;
+        tmp.fontSize = 24;
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.color = Color.white;
         var trt = textGo.GetComponent<RectTransform>();
@@ -423,6 +496,6 @@ public class SceneSetupEditor : EditorWindow
         trt.anchorMax = Vector2.one;
         trt.offsetMin = trt.offsetMax = Vector2.zero;
 
-        return btn;
+        return go;
     }
 }

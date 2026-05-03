@@ -1,165 +1,270 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// 개별 다리 조각 컴포넌트
-/// 악기 종류에 따라 모양이 달라짐
+/// 개별 다리 조각 컴포넌트 — 완전 재작성
+///
+/// [TODO 완료] CurvedBridgeRenderer 연동:
+///   Curved 타입은 LineRenderer + PolygonCollider2D로 실제 곡선 렌더링
+///
+/// [TODO 완료] Zigzag / Stepped 정교한 비주얼:
+///   하나의 BridgePiece가 여러 자식 조각을 생성해 진짜 지그재그/계단 형태 구현
+///
+/// [TODO 완료] 다리 조각 스프라이트:
+///   BridgeSpriteGenerator로 형태별 텍스처 베이크
 /// </summary>
 [RequireComponent(typeof(SpriteRenderer))]
 [RequireComponent(typeof(BoxCollider2D))]
 public class BridgePiece : MonoBehaviour
 {
     private InstrumentData sourceInstrument;
-    private SpriteRenderer spriteRenderer;
-    private BoxCollider2D col;
+    private SpriteRenderer sr;
+    private BoxCollider2D  col;
 
-    // Bouncy 다리에서 사용
-    private bool isBouncy;
+    // Bouncy
+    private bool  isBouncy;
     private float bounceForce = 12f;
 
-    // Slippery 다리에서 사용
+    // Slippery
     private bool isSlippery;
+
+    // 자식 조각 (Zigzag / Stepped 멀티피스)
+    private readonly List<GameObject> subPieces = new();
+
+    // Curved 렌더러
+    private CurvedBridgeRenderer curvedRenderer;
+
+    // ── 공개 프로퍼티 ──────────────────────────────────────
+    public BridgeShapeType ShapeType => sourceInstrument?.shapeType ?? BridgeShapeType.Straight;
+    public static int SubPieceCount = 5; // Zigzag/Stepped에서 쓸 분할 수
 
     private void Awake()
     {
-        spriteRenderer = GetComponent<SpriteRenderer>();
+        sr  = GetComponent<SpriteRenderer>();
         col = GetComponent<BoxCollider2D>();
     }
 
-    /// <summary>
-    /// 악기 데이터를 기반으로 다리 조각 초기화
-    /// </summary>
     public void Initialize(InstrumentData instrument, Vector3 position)
     {
         sourceInstrument = instrument;
         transform.position = position;
-
         ApplyShape(instrument);
     }
 
     private void ApplyShape(InstrumentData instrument)
     {
-        spriteRenderer.color = instrument.bridgeColor;
-
-        if (instrument.bridgeSprite != null)
-            spriteRenderer.sprite = instrument.bridgeSprite;
+        // 공통 스프라이트 (형태별 텍스처)
+        sr.sprite = BridgeSpriteGenerator.Generate(instrument.shapeType, instrument.bridgeColor);
+        sr.color  = Color.white; // 텍스처 자체에 색상이 들어있음
+        sr.sortingOrder = 1;
 
         switch (instrument.shapeType)
         {
-            case BridgeShapeType.Straight:
-                ApplyStraight(instrument);
-                break;
-            case BridgeShapeType.Curved:
-                ApplyCurved(instrument);
-                break;
-            case BridgeShapeType.Zigzag:
-                ApplyZigzag(instrument);
-                break;
-            case BridgeShapeType.Stepped:
-                ApplyStepped(instrument);
-                break;
-            case BridgeShapeType.Bouncy:
-                ApplyBouncy(instrument);
-                break;
-            case BridgeShapeType.Slippery:
-                ApplySlippery(instrument);
-                break;
-            case BridgeShapeType.Wide:
-                ApplyWide(instrument);
-                break;
+            case BridgeShapeType.Straight: ApplyStraight(instrument);  break;
+            case BridgeShapeType.Curved:   ApplyCurved(instrument);    break;
+            case BridgeShapeType.Zigzag:   ApplyZigzag(instrument);    break;
+            case BridgeShapeType.Stepped:  ApplyStepped(instrument);   break;
+            case BridgeShapeType.Bouncy:   ApplyBouncy(instrument);    break;
+            case BridgeShapeType.Slippery: ApplySlippery(instrument);  break;
+            case BridgeShapeType.Wide:     ApplyWide(instrument);      break;
         }
     }
 
-    private void ApplyStraight(InstrumentData instrument)
+    // ── Straight ──────────────────────────────────────────
+
+    private void ApplyStraight(InstrumentData inst)
     {
-        transform.localScale = new Vector3(instrument.bridgeWidth, instrument.bridgeHeight, 1f);
-        col.size = Vector2.one;
+        transform.localScale = new Vector3(inst.bridgeWidth, inst.bridgeHeight, 1f);
+        col.size   = Vector2.one;
+        col.offset = Vector2.zero;
     }
 
-    private void ApplyCurved(InstrumentData instrument)
+    // ── Curved ────────────────────────────────────────────
+    // [FIX] CurvedBridgeRenderer 실제 연동
+
+    private void ApplyCurved(InstrumentData inst)
     {
-        // 곡선형: 사인 커브로 약간 아치 형태
-        transform.localScale = new Vector3(instrument.bridgeWidth, instrument.bridgeHeight * 1.2f, 1f);
-        float angle = Mathf.Sin(transform.position.x * 0.5f) * 12f;
-        transform.rotation = Quaternion.Euler(0, 0, angle);
-        col.size = Vector2.one;
+        // SpriteRenderer는 숨기고 LineRenderer로 렌더링
+        sr.enabled = false;
+        col.enabled = false; // 콜라이더는 CurvedBridgeRenderer가 PolygonCollider2D로 대체
+
+        curvedRenderer = GetComponent<CurvedBridgeRenderer>()
+                      ?? gameObject.AddComponent<CurvedBridgeRenderer>();
+
+        curvedRenderer.SetWidth(inst.bridgeWidth * 2f);
+        curvedRenderer.SetColor(inst.bridgeColor);
+        curvedRenderer.BuildCurve(inst);
     }
 
-    private void ApplyZigzag(InstrumentData instrument)
+    // ── Zigzag ────────────────────────────────────────────
+    // [FIX] 진짜 지그재그: SubPieceCount개의 기울어진 조각으로 분할
+
+    private void ApplyZigzag(InstrumentData inst)
     {
-        // 지그재그: 교대로 위/아래 오프셋 + 살짝 기울기
-        float offset = (Mathf.FloorToInt(transform.position.x) % 2 == 0) ? 0.15f : -0.15f;
-        transform.position += new Vector3(0, offset, 0);
-        transform.localScale = new Vector3(instrument.bridgeWidth * 0.8f, instrument.bridgeHeight * 1.3f, 1f);
-        float tilt = offset > 0 ? 8f : -8f;
-        transform.rotation = Quaternion.Euler(0, 0, tilt);
-        col.size = Vector2.one;
+        // 본체는 숨김
+        sr.enabled  = false;
+        col.enabled = false;
+
+        float segW  = inst.bridgeWidth / SubPieceCount;
+        float segH  = inst.bridgeHeight * 1.4f;
+
+        for (int i = 0; i < SubPieceCount; i++)
+        {
+            var sub = CreateSubPiece(inst, $"Zigzag_{i}");
+
+            float xOff  = (-inst.bridgeWidth / 2f + segW * i + segW / 2f);
+            float yOff  = (i % 2 == 0) ? inst.bridgeHeight * 0.8f : -inst.bridgeHeight * 0.8f;
+            float angle = (i % 2 == 0) ? 20f : -20f;
+
+            sub.transform.localPosition = new Vector3(xOff, yOff, 0);
+            sub.transform.localScale    = new Vector3(segW * 1.05f, segH, 1f);
+            sub.transform.localRotation = Quaternion.Euler(0, 0, angle);
+
+            // 스프라이트: 형태 반영
+            var subSr = sub.GetComponent<SpriteRenderer>();
+            subSr.sprite = BridgeSpriteGenerator.Generate(BridgeShapeType.Zigzag, inst.bridgeColor);
+            subSr.color  = Color.white;
+        }
     }
 
-    private void ApplyStepped(InstrumentData instrument)
+    // ── Stepped ───────────────────────────────────────────
+    // [FIX] 계단형: 왼쪽에서 오른쪽으로 높이가 점진 상승
+
+    private void ApplyStepped(InstrumentData inst)
     {
-        // 계단형: 점진적으로 높이가 올라가는 형태
-        float stepHeight = Mathf.Abs(transform.position.x) * 0.05f;
-        transform.position += new Vector3(0, stepHeight, 0);
-        transform.localScale = new Vector3(instrument.bridgeWidth * 0.7f, instrument.bridgeHeight * 1.5f, 1f);
-        col.size = Vector2.one;
+        sr.enabled  = false;
+        col.enabled = false;
+
+        float segW    = inst.bridgeWidth / SubPieceCount;
+        float totalRise = inst.bridgeHeight * (SubPieceCount - 1);
+
+        for (int i = 0; i < SubPieceCount; i++)
+        {
+            var sub = CreateSubPiece(inst, $"Step_{i}");
+
+            float xOff = -inst.bridgeWidth / 2f + segW * i + segW / 2f;
+            float yOff = -totalRise / 2f + inst.bridgeHeight * i; // 계단식 상승
+            float h    = inst.bridgeHeight * (1.5f + i * 0.2f);  // 아래로 갈수록 두꺼움
+
+            sub.transform.localPosition = new Vector3(xOff, yOff, 0);
+            sub.transform.localScale    = new Vector3(segW * 1.02f, h, 1f);
+            sub.transform.localRotation = Quaternion.identity;
+
+            var subSr = sub.GetComponent<SpriteRenderer>();
+            subSr.sprite = BridgeSpriteGenerator.Generate(BridgeShapeType.Stepped, inst.bridgeColor);
+            subSr.color  = Color.white;
+        }
     }
 
-    private void ApplyBouncy(InstrumentData instrument)
-    {
-        // 탄성 다리: 넓고 납작 + 초록빛 + 플레이어 바운스
-        isBouncy = true;
-        transform.localScale = new Vector3(instrument.bridgeWidth * 1.2f, instrument.bridgeHeight * 0.6f, 1f);
-        col.size = Vector2.one;
+    // ── Bouncy ────────────────────────────────────────────
 
-        // 트리거 콜라이더 추가 (바운스 감지용)
-        var trigger = gameObject.AddComponent<BoxCollider2D>();
-        trigger.isTrigger = true;
-        trigger.size = new Vector2(1f, 1.5f);
-        trigger.offset = new Vector2(0, 0.75f);
+    private void ApplyBouncy(InstrumentData inst)
+    {
+        isBouncy   = true;
+        bounceForce = 14f;
+
+        transform.localScale = new Vector3(inst.bridgeWidth * 1.2f, inst.bridgeHeight * 0.5f, 1f);
+        col.size   = Vector2.one;
+        col.offset = Vector2.zero;
+
+        // 트리거: 위쪽 감지용
+        var trig = gameObject.AddComponent<BoxCollider2D>();
+        trig.isTrigger = true;
+        trig.size   = new Vector2(1f, 1.5f);
+        trig.offset = new Vector2(0, 0.75f);
     }
 
-    private void ApplySlippery(InstrumentData instrument)
+    // ── Slippery ──────────────────────────────────────────
+
+    private void ApplySlippery(InstrumentData inst)
     {
-        // 미끄러운 다리: 넓적하고 투명감
         isSlippery = true;
-        transform.localScale = new Vector3(instrument.bridgeWidth * 1.1f, instrument.bridgeHeight * 0.8f, 1f);
-        var c = spriteRenderer.color;
-        spriteRenderer.color = new Color(c.r, c.g, c.b, 0.7f);
 
-        // 물리 재질을 통해 마찰 제거
-        var mat = new PhysicsMaterial2D("SlipperyBridge") { friction = 0.02f, bounciness = 0f };
+        transform.localScale = new Vector3(inst.bridgeWidth * 1.1f, inst.bridgeHeight * 0.8f, 1f);
+        var mat = new PhysicsMaterial2D("SlipperyBridge") { friction = 0.01f, bounciness = 0f };
         col.sharedMaterial = mat;
-        col.size = Vector2.one;
+        col.size   = Vector2.one;
+        col.offset = Vector2.zero;
+
+        // 투명도 조절 (얼음 느낌)
+        sr.color = new Color(1f, 1f, 1f, 0.75f);
     }
 
-    private void ApplyWide(InstrumentData instrument)
+    // ── Wide ──────────────────────────────────────────────
+
+    private void ApplyWide(InstrumentData inst)
     {
-        // 넓은 플랫폼: 폭 1.5배
-        transform.localScale = new Vector3(instrument.bridgeWidth * 1.5f, instrument.bridgeHeight * 1.2f, 1f);
-        col.size = Vector2.one;
+        transform.localScale = new Vector3(inst.bridgeWidth * 1.6f, inst.bridgeHeight * 1.2f, 1f);
+        col.size   = Vector2.one;
+        col.offset = Vector2.zero;
     }
+
+    // ── 자식 조각 생성 헬퍼 ───────────────────────────────
+
+    private GameObject CreateSubPiece(InstrumentData inst, string objName)
+    {
+        var sub = new GameObject(objName);
+        sub.layer = LayerMask.NameToLayer("Ground");
+        sub.transform.SetParent(transform, false);
+
+        var subSr = sub.AddComponent<SpriteRenderer>();
+        subSr.sortingOrder = 1;
+
+        var subCol = sub.AddComponent<BoxCollider2D>();
+        subCol.size   = Vector2.one;
+        subCol.offset = Vector2.zero;
+
+        subPieces.Add(sub);
+        return sub;
+    }
+
+    // ── 물리 이벤트 (Bouncy) ──────────────────────────────
 
     private void OnCollisionEnter2D(Collision2D collision)
     {
-        if (!isBouncy) return;
-        if (!collision.gameObject.CompareTag("Player")) return;
-
-        var rb = collision.gameObject.GetComponent<Rigidbody2D>();
-        if (rb != null)
-        {
-            rb.velocity = new Vector2(rb.velocity.x, bounceForce);
-        }
+        if (!isBouncy || !collision.gameObject.CompareTag("Player")) return;
+        ApplyBounce(collision.gameObject);
     }
 
     private void OnTriggerEnter2D(Collider2D other)
     {
-        if (!isBouncy) return;
-        if (!other.CompareTag("Player")) return;
-
+        if (!isBouncy || !other.CompareTag("Player")) return;
         var rb = other.GetComponent<Rigidbody2D>();
         if (rb != null && rb.velocity.y <= 0)
+            ApplyBounce(other.gameObject);
+    }
+
+    private void ApplyBounce(GameObject player)
+    {
+        var rb = player.GetComponent<Rigidbody2D>();
+        if (rb == null) return;
+        rb.velocity = new Vector2(rb.velocity.x, bounceForce);
+
+        // 시각 피드백: 눌림/복원
+        StopAllCoroutines();
+        StartCoroutine(SquashRoutine());
+    }
+
+    private System.Collections.IEnumerator SquashRoutine()
+    {
+        var orig = transform.localScale;
+        transform.localScale = new Vector3(orig.x * 1.3f, orig.y * 0.5f, orig.z);
+        yield return new WaitForSeconds(0.08f);
+        float t = 0f;
+        while (t < 0.15f)
         {
-            rb.velocity = new Vector2(rb.velocity.x, bounceForce);
+            t += Time.deltaTime;
+            transform.localScale = Vector3.Lerp(
+                new Vector3(orig.x * 1.3f, orig.y * 0.5f, orig.z),
+                orig, t / 0.15f);
+            yield return null;
         }
+        transform.localScale = orig;
+    }
+
+    private void OnDestroy()
+    {
+        foreach (var s in subPieces)
+            if (s != null) Destroy(s);
     }
 }

@@ -11,14 +11,14 @@ using TMPro;
 /// </summary>
 public static class AssetGenerator
 {
-    private const string SpriteFolder = "Assets/Sprites";
-    private const string PrefabFolder = "Assets/Prefabs";
-    private const string SoFolder = "Assets/ScriptableObjects";
-    private const string AudioFolder = "Assets/Audio";
+    private const string SpriteFolder   = "Assets/Sprites";
+    private const string PrefabFolder   = "Assets/Prefabs";
+    private const string SoFolder       = "Assets/ScriptableObjects";
+    private const string AudioFolder    = "Assets/Audio";
     private const string ResourcesFolder = "Assets/Resources";
 
     private const string SquareSpritePath = SpriteFolder + "/Square.png";
-    private const string RegistryPath = ResourcesFolder + "/InstrumentRegistry.asset";
+    private const string RegistryPath    = ResourcesFolder + "/InstrumentRegistry.asset";
 
     // ──────────────────────────────────────────────────────────
     // 메뉴
@@ -182,7 +182,7 @@ public static class AssetGenerator
     private static Sprite LoadSquareSprite() => AssetDatabase.LoadAssetAtPath<Sprite>(SquareSpritePath);
 
     // ──────────────────────────────────────────────────────────
-    // 악기 정의 (8종)
+    // 악기 정의 (21종)
     // ──────────────────────────────────────────────────────────
 
     private struct InstrumentDef
@@ -197,7 +197,6 @@ public static class AssetGenerator
 
     private static InstrumentDef[] GetInstrumentDefs() => new[]
     {
-        // ── 기본 악기 (1~8) ──
         new InstrumentDef {
             id = "piano", displayName = "Piano", key = KeyCode.Alpha1,
             shape = BridgeShapeType.Straight, color = new Color(0.95f, 0.95f, 0.95f),
@@ -254,8 +253,6 @@ public static class AssetGenerator
                 waveform = ProceduralAudioGenerator.Waveform.Bell,
                 duration = 1.2f, attack = 0.005f, decay = 1.8f, octaveShift = 1f, noiseMix = 0 }
         },
-
-        // ── 확장 악기 (9~20) ──
         new InstrumentDef {
             id = "trumpet", displayName = "Trumpet", key = KeyCode.Alpha9,
             shape = BridgeShapeType.Bouncy, color = new Color(0.9f, 0.7f, 0.1f),
@@ -372,14 +369,14 @@ public static class AssetGenerator
             AssetDatabase.CreateAsset(asset, path);
         }
         asset.instrumentName = d.displayName;
-        asset.activationKey = d.key;
-        asset.shapeType = d.shape;
-        asset.bridgeWidth = 2f;
-        asset.bridgeHeight = 0.3f;
-        asset.bridgeColor = d.color;
-        asset.bridgeSprite = LoadSquareSprite();
-        asset.noteClips = clips;
-        asset.volume = 0.8f;
+        asset.activationKey  = d.key;
+        asset.shapeType      = d.shape;
+        asset.bridgeWidth    = 2f;
+        asset.bridgeHeight   = 0.3f;
+        asset.bridgeColor    = d.color;
+        asset.bridgeSprite   = LoadSquareSprite();
+        asset.noteClips      = clips;
+        asset.volume         = 0.8f;
         EditorUtility.SetDirty(asset);
         return asset;
     }
@@ -397,7 +394,7 @@ public static class AssetGenerator
     }
 
     // ──────────────────────────────────────────────────────────
-    // 스테이지 (10종, 기믹 포함)
+    // 스테이지 (15개) — stageIndex 0-based로 통일
     // ──────────────────────────────────────────────────────────
 
     private static void EnsureStages(InstrumentData[] instruments)
@@ -431,133 +428,110 @@ public static class AssetGenerator
 
         var stages = new List<StageData>();
 
-        // ── Stage 1: 튜토리얼 ──
-        stages.Add(Stage(1, "Tutorial - First Note", "피아노 하나로 간단한 다리를 만들어 건너보세요.",
-            3f, 20f, 30, 5, 12,
-            pickups: new[] { Pickup(guitar, 0, -1.5f) },
-            obstacles: new ObstaclePlacement[0]));
+        // stageIndex = 0-based (0~14). 파일명 편의상 1-based 유지.
+        stages.Add(Stage(1,  "Tutorial - First Note", "피아노 하나로 간단한 다리를 만들어 건너보세요.",
+            3f,   20f, 30, 5,  12, new[] { Pickup(guitar, 0, -1.5f) }, new ObstaclePlacement[0]));
 
-        // ── Stage 2: 곡선 다리 입문 ──
-        stages.Add(Stage(2, "Strings Attached", "기타의 곡선 다리를 활용해 구덩이를 건너세요.",
-            3.2f, 22f, 30, 7, 15,
-            pickups: new[] { Pickup(drum, 3, -1.5f) },
-            obstacles: new[] {
-                Obstacle(ObstacleKind.Moving, new Vector2(0, -1.5f), Vector2.one, Vector2.right, 2f, 2f),
-            }));
+        stages.Add(Stage(2,  "Strings Attached", "기타의 곡선 다리를 활용해 구덩이를 건너세요.",
+            3.2f, 22f, 30, 7,  15,
+            new[] { Pickup(drum, 3, -1.5f) },
+            new[] { Obstacle(ObstacleKind.Moving, new Vector2(0, -1.5f), Vector2.one, Vector2.right, 2f, 2f) }));
 
-        // ── Stage 3: 바람의 노래 ──
-        stages.Add(Stage(3, "Wind of Change", "바람이 부는 구간을 피해 다리를 놓으세요.",
+        stages.Add(Stage(3,  "Wind of Change", "바람이 부는 구간을 피해 다리를 놓으세요.",
             3.5f, 24f, 32, 10, 18,
-            pickups: new[] { Pickup(flute, -2, -1.5f) },
-            obstacles: new[] {
-                Wind(new Vector2(0, 0), new Vector2(4, 3), new Vector2(4f, 0)),
-            }));
+            new[] { Pickup(flute, -2, -1.5f) },
+            new[] { Wind(new Vector2(0, 0), new Vector2(4, 3), new Vector2(4f, 0)) }));
 
-        // ── Stage 4: 무너지는 길 ──
-        stages.Add(Stage(4, "Crumbling Path", "밟으면 무너지는 발판 위를 재빨리 건너세요.",
+        stages.Add(Stage(4,  "Crumbling Path", "밟으면 무너지는 발판 위를 재빨리 건너세요.",
             3.8f, 26f, 34, 12, 20,
-            pickups: new[] { Pickup(violin, 2, -0.5f) },
-            obstacles: new[] {
+            new[] { Pickup(violin, 2, -0.5f) },
+            new[] {
                 Obstacle(ObstacleKind.Falling, new Vector2(-3, -1.5f), Vector2.one),
-                Obstacle(ObstacleKind.Falling, new Vector2(3, -1.5f), Vector2.one),
+                Obstacle(ObstacleKind.Falling, new Vector2(3,  -1.5f), Vector2.one),
             }));
 
-        // ── Stage 5: 가시의 리듬 ──
-        stages.Add(Stage(5, "Spiked Rhythm", "날카로운 가시 위로 다리를 지어야 합니다.",
-            4f, 28f, 36, 14, 22,
-            pickups: new[] { Pickup(bass, 0, -1f), Pickup(trumpet, -5, 0f) },
-            obstacles: new[] {
-                Spike(new Vector2(-4, -2f)),
-                Spike(new Vector2(0, -2f)),
-                Spike(new Vector2(4, -2f)),
-            }));
+        stages.Add(Stage(5,  "Spiked Rhythm", "날카로운 가시 위로 다리를 지어야 합니다.",
+            4f,   28f, 36, 14, 22,
+            new[] { Pickup(bass, 0, -1f), Pickup(trumpet, -5, 0f) },
+            new[] { Spike(new Vector2(-4, -2f)), Spike(new Vector2(0, -2f)), Spike(new Vector2(4, -2f)) }));
 
-        // ── Stage 6: 바운스 점프 (신규 기믹: Bouncer) ──
-        stages.Add(Stage(6, "Bounce House", "트램폴린을 활용해 높은 곳으로 점프하세요!",
-            4f, 26f, 36, 14, 22,
-            pickups: new[] { Pickup(sax, -2, 1.5f) },
-            obstacles: new[] {
+        stages.Add(Stage(6,  "Bounce House", "트램폴린을 활용해 높은 곳으로 점프하세요!",
+            4f,   26f, 36, 14, 22,
+            new[] { Pickup(sax, -2, 1.5f) },
+            new[] {
                 Bouncer(new Vector2(-3, -1.8f), 18f),
-                Bouncer(new Vector2(3, -1.8f), 18f),
+                Bouncer(new Vector2( 3, -1.8f), 18f),
                 Spike(new Vector2(0, -2f)),
             }));
 
-        // ── Stage 7: 움직이는 선율 ──
-        stages.Add(Stage(7, "Moving Melody", "좌우로 움직이는 장애물을 피해 다리를 놓으세요.",
+        stages.Add(Stage(7,  "Moving Melody", "좌우로 움직이는 장애물을 피해 다리를 놓으세요.",
             4.2f, 28f, 38, 16, 24,
-            pickups: new[] { Pickup(xylo, -3, 1f), Pickup(harp, 4, 0f) },
-            obstacles: new[] {
+            new[] { Pickup(xylo, -3, 1f), Pickup(harp, 4, 0f) },
+            new[] {
                 Obstacle(ObstacleKind.Moving, new Vector2(-3, 0.5f), Vector2.one, Vector2.up, 2f, 2.5f),
-                Obstacle(ObstacleKind.Moving, new Vector2(3, 0.5f), Vector2.one, Vector2.up, 2f, 2.5f),
+                Obstacle(ObstacleKind.Moving, new Vector2( 3, 0.5f), Vector2.one, Vector2.up, 2f, 2.5f),
             }));
 
-        // ── Stage 8: 중력 반전 (신규 기믹: GravityFlip) ──
-        stages.Add(Stage(8, "Gravity Shift", "중력이 뒤집히는 영역을 조심하세요!",
+        stages.Add(Stage(8,  "Gravity Shift", "중력이 뒤집히는 영역을 조심하세요!",
             4.3f, 30f, 38, 16, 24,
-            pickups: new[] { Pickup(organ, 0, 1f), Pickup(bell, -4, 0.5f) },
-            obstacles: new[] {
+            new[] { Pickup(organ, 0, 1f), Pickup(bell, -4, 0.5f) },
+            new[] {
                 GravityFlip(new Vector2(-2, 0), new Vector2(4, 4)),
                 Spike(new Vector2(4, -2f)),
-                Spike(new Vector2(4, 3f)),
+                Spike(new Vector2(4,  3f)),
             }));
 
-        // ── Stage 9: 시한문 (신규 기믹: TimedGate) ──
-        stages.Add(Stage(9, "Ticking Gates", "주기적으로 열리고 닫히는 문을 타이밍에 맞춰 통과하세요.",
+        stages.Add(Stage(9,  "Ticking Gates", "주기적으로 열리고 닫히는 문을 타이밍에 맞춰 통과하세요.",
             4.5f, 30f, 40, 18, 26,
-            pickups: new[] { Pickup(synth, 2, 1f) },
-            obstacles: new[] {
+            new[] { Pickup(synth, 2, 1f) },
+            new[] {
                 TimedGate(new Vector2(-4, 0), new Vector2(0.5f, 3f), 2f, 2f),
-                TimedGate(new Vector2(0, 0), new Vector2(0.5f, 3f), 2f, 2f),
-                TimedGate(new Vector2(4, 0), new Vector2(0.5f, 3f), 2f, 2f),
+                TimedGate(new Vector2( 0, 0), new Vector2(0.5f, 3f), 2f, 2f),
+                TimedGate(new Vector2( 4, 0), new Vector2(0.5f, 3f), 2f, 2f),
             }));
 
-        // ── Stage 10: 레이저 회피 (신규 기믹: Laser) ──
         stages.Add(Stage(10, "Laser Symphony", "레이저 빔 사이로 안전한 다리를 지으세요.",
             4.5f, 32f, 40, 18, 26,
-            pickups: new[] { Pickup(marimba, -3, 0f), Pickup(clarinet, 3, 0f) },
-            obstacles: new[] {
+            new[] { Pickup(marimba, -3, 0f), Pickup(clarinet, 3, 0f) },
+            new[] {
                 Laser(new Vector2(-5, 0.5f), 1.5f, 2f, 6f),
-                Laser(new Vector2(0, -0.5f), 1.5f, 2f, 6f),
-                Laser(new Vector2(5, 0.5f), 1.5f, 2f, 6f),
+                Laser(new Vector2( 0,-0.5f), 1.5f, 2f, 6f),
+                Laser(new Vector2( 5, 0.5f), 1.5f, 2f, 6f),
             }));
 
-        // ── Stage 11: 빙판길 (신규 기믹: Ice) ──
         stages.Add(Stage(11, "Frozen Melody", "미끄러운 얼음 위에서 균형을 잡으며 건너세요.",
             4.8f, 32f, 40, 18, 26,
-            pickups: new[] { Pickup(harmonica, -2, 0.5f), Pickup(banjo, 4, -1f) },
-            obstacles: new[] {
+            new[] { Pickup(harmonica, -2, 0.5f), Pickup(banjo, 4, -1f) },
+            new[] {
                 Ice(new Vector2(-3, -1.8f), new Vector2(6, 0.5f)),
-                Ice(new Vector2(3, -1.8f), new Vector2(6, 0.5f)),
+                Ice(new Vector2( 3, -1.8f), new Vector2(6, 0.5f)),
                 Wind(new Vector2(0, 0), new Vector2(3, 3), new Vector2(3f, 0)),
             }));
 
-        // ── Stage 12: 복합 기믹 1 ──
         stages.Add(Stage(12, "Symphony of Traps", "바운서 + 레이저 + 바람. 모든 기믹이 합쳐집니다.",
-            5f, 34f, 42, 20, 28,
-            pickups: new[] { Pickup(cello, 0, 1.5f) },
-            obstacles: new[] {
+            5f,   34f, 42, 20, 28,
+            new[] { Pickup(cello, 0, 1.5f) },
+            new[] {
                 Bouncer(new Vector2(-5, -1.8f), 16f),
                 Laser(new Vector2(-2, 0.5f), 1f, 2.5f, 5f),
                 Wind(new Vector2(2, 0), new Vector2(3, 3), new Vector2(5f, 0)),
                 Spike(new Vector2(5, -2f)),
             }));
 
-        // ── Stage 13: 복합 기믹 2 ──
         stages.Add(Stage(13, "Gravity Maze", "중력 반전 + 시한문 + 빙판. 미로를 돌파하세요.",
-            5f, 34f, 42, 20, 28,
-            pickups: new[] { Pickup(tuba, -4, 0f), Pickup(accordion, 4, 0f) },
-            obstacles: new[] {
+            5f,   34f, 42, 20, 28,
+            new[] { Pickup(tuba, -4, 0f), Pickup(accordion, 4, 0f) },
+            new[] {
                 GravityFlip(new Vector2(-3, 0), new Vector2(3, 4)),
                 TimedGate(new Vector2(0, 0), new Vector2(0.5f, 3f), 1.5f, 1.5f),
                 Ice(new Vector2(3, -1.8f), new Vector2(4, 0.5f)),
                 Obstacle(ObstacleKind.Falling, new Vector2(5, -1.5f), Vector2.one),
             }));
 
-        // ── Stage 14: 빠른 템포 ──
         stages.Add(Stage(14, "Tight Tempo", "좁은 공간, 빠른 판정선. 집중력 총동원!",
             5.5f, 34f, 42, 22, 30,
-            pickups: new[] { Pickup(kalimba, 0, 1f) },
-            obstacles: new[] {
+            new[] { Pickup(kalimba, 0, 1f) },
+            new[] {
                 Obstacle(ObstacleKind.Moving, new Vector2(-4, -0.5f), Vector2.one, Vector2.right, 3f, 3.5f),
                 Laser(new Vector2(-1, 0.5f), 1f, 1.5f, 5f),
                 TimedGate(new Vector2(2, 0), new Vector2(0.5f, 3f), 1.5f, 1.5f),
@@ -565,11 +539,10 @@ public static class AssetGenerator
                 Spike(new Vector2(0, -2f)),
             }));
 
-        // ── Stage 15: 피날레 ──
-        stages.Add(Stage(15, "Grand Finale", "20가지 악기로 당신만의 피날레를 완성하세요!",
+        stages.Add(Stage(15, "Grand Finale", "21가지 악기로 당신만의 피날레를 완성하세요!",
             5.5f, 38f, 48, 24, 34,
-            pickups: new PickupPlacement[0],
-            obstacles: new[] {
+            new PickupPlacement[0],
+            new[] {
                 Bouncer(new Vector2(-8, -1.8f), 20f),
                 GravityFlip(new Vector2(-5, 0), new Vector2(3, 3)),
                 Laser(new Vector2(-2, 0.5f), 1f, 2f, 5f),
@@ -584,7 +557,7 @@ public static class AssetGenerator
         foreach (var s in stages) EditorUtility.SetDirty(s);
     }
 
-    // ── 새 장애물 헬퍼 ──
+    // ── 장애물 헬퍼 ────────────────────────────────────────────
 
     private static ObstaclePlacement Bouncer(Vector2 pos, float force)
         => new ObstaclePlacement { kind = ObstacleKind.Bouncer, position = pos, size = new Vector2(1.5f, 0.3f), bounceForce = force };
@@ -601,32 +574,33 @@ public static class AssetGenerator
     private static ObstaclePlacement Ice(Vector2 pos, Vector2 size)
         => new ObstaclePlacement { kind = ObstacleKind.Ice, position = pos, size = size };
 
-    private static StageData Stage(int idx, string name, string desc,
+    private static StageData Stage(int fileIdx, string name, string desc,
         float speed, float width, int maxPieces, int perfect, int good,
         PickupPlacement[] pickups, ObstaclePlacement[] obstacles)
     {
-        string path = $"{SoFolder}/Stage{idx}.asset";
+        string path = $"{SoFolder}/Stage{fileIdx}.asset";
         var s = AssetDatabase.LoadAssetAtPath<StageData>(path);
         if (s == null)
         {
             s = ScriptableObject.CreateInstance<StageData>();
             AssetDatabase.CreateAsset(s, path);
         }
-        s.stageIndex = idx;
-        s.stageName = name;
-        s.description = desc;
+        // [FIX] stageIndex를 0-based로 저장 (GameManager.CurrentStageIndex와 일치)
+        s.stageIndex      = fileIdx - 1;
+        s.stageName       = name;
+        s.description     = desc;
         s.rhythmLineSpeed = speed;
-        s.stageWidth = width;
+        s.stageWidth      = width;
         s.maxBridgePieces = maxPieces;
         s.perfectThreshold = perfect;
-        s.goodThreshold = good;
-        s.startGroundX = -width / 2f - 1f;
-        s.endGroundX = width / 2f + 1f;
-        s.groundY = -2f;
-        s.goalY = 0.5f;
-        s.gravityScale = 1f;
-        s.pickups = new List<PickupPlacement>(pickups);
-        s.obstacles = new List<ObstaclePlacement>(obstacles);
+        s.goodThreshold   = good;
+        s.startGroundX    = -width / 2f - 1f;
+        s.endGroundX      = width  / 2f + 1f;
+        s.groundY         = -2f;
+        s.goalY           = 0.5f;
+        s.gravityScale    = 1f;
+        s.pickups         = new List<PickupPlacement>(pickups);
+        s.obstacles       = new List<ObstaclePlacement>(obstacles);
         return s;
     }
 
@@ -638,8 +612,7 @@ public static class AssetGenerator
 
     private static ObstaclePlacement Obstacle(ObstacleKind kind, Vector2 pos, Vector2 size,
         Vector2 dir, float dist, float speed)
-        => new ObstaclePlacement {
-            kind = kind, position = pos, size = size,
+        => new ObstaclePlacement { kind = kind, position = pos, size = size,
             moveDirection = dir, moveDistance = dist, moveSpeed = speed };
 
     private static ObstaclePlacement Wind(Vector2 pos, Vector2 size, Vector2 force)
@@ -655,6 +628,10 @@ public static class AssetGenerator
     private static void EnsureBridgePiecePrefab()
     {
         var go = new GameObject("BridgePiece");
+        // [FIX] 다리 조각을 Ground 레이어로 설정 → 플레이어 groundCheck가 인식함
+        int groundLayer = LayerMask.NameToLayer("Ground");
+        if (groundLayer >= 0) go.layer = groundLayer;
+
         var sr = go.AddComponent<SpriteRenderer>();
         sr.sprite = LoadSquareSprite();
         sr.sortingOrder = 1;
@@ -679,6 +656,8 @@ public static class AssetGenerator
         rb.constraints = RigidbodyConstraints2D.FreezeRotation;
         rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
         rb.interpolation = RigidbodyInterpolation2D.Interpolate;
+        // [FIX] 기본 drag 설정 — IceZone 종료 시 0.5f로 복원하는 쌍과 맞춤
+        rb.drag = 0.5f;
         go.AddComponent<BoxCollider2D>();
 
         var gc = new GameObject("GroundCheck");
@@ -801,12 +780,16 @@ public static class AssetGenerator
         sr.sprite = LoadSquareSprite();
         sr.color = new Color(0.5f, 0.3f, 0.15f);
         sr.sortingOrder = 2;
+        // 물리 충돌용 콜라이더 (Ground 레이어로 플레이어가 위에 설 수 있음)
         go.AddComponent<BoxCollider2D>();
+        // 트리거: 플레이어가 위에 올라가는 것을 감지
         var triggerCol = go.AddComponent<BoxCollider2D>();
         triggerCol.isTrigger = true;
         triggerCol.size = new Vector2(1f, 2f);
         triggerCol.offset = new Vector2(0, 1f);
-        go.AddComponent<Rigidbody2D>();
+        // [FIX] Rigidbody2D를 Kinematic으로 시작 — FallingObstacle.cs의 Awake와 일치
+        var rb = go.AddComponent<Rigidbody2D>();
+        rb.bodyType = RigidbodyType2D.Kinematic;
         go.AddComponent<FallingObstacle>();
         PrefabUtility.SaveAsPrefabAsset(go, PrefabFolder + "/FallingObstacle.prefab");
         Object.DestroyImmediate(go);
@@ -862,10 +845,6 @@ public static class AssetGenerator
         Object.DestroyImmediate(go);
     }
 
-    // ──────────────────────────────────────────────────────────
-    // 새 장애물 프리팹
-    // ──────────────────────────────────────────────────────────
-
     private static void EnsureBouncerPrefab()
     {
         var go = new GameObject("Bouncer");
@@ -874,7 +853,11 @@ public static class AssetGenerator
         sr.color = new Color(0.2f, 0.9f, 0.3f);
         sr.sortingOrder = 2;
         go.transform.localScale = new Vector3(1.5f, 0.3f, 1f);
-        var c = go.AddComponent<BoxCollider2D>(); c.isTrigger = true;
+        // [NOTE] BouncerObstacle은 OnCollisionEnter2D + OnTriggerEnter2D 둘 다 처리하므로
+        // 일반 콜라이더(물리 충돌)와 트리거(진입 감지) 모두 필요
+        var normalCol = go.AddComponent<BoxCollider2D>();
+        var triggerCol = go.AddComponent<BoxCollider2D>();
+        triggerCol.isTrigger = true;
         go.AddComponent<BouncerObstacle>();
         PrefabUtility.SaveAsPrefabAsset(go, PrefabFolder + "/Bouncer.prefab");
         Object.DestroyImmediate(go);
@@ -900,6 +883,7 @@ public static class AssetGenerator
         sr.sprite = LoadSquareSprite();
         sr.color = new Color(0.4f, 0.4f, 0.5f);
         sr.sortingOrder = 2;
+        // TimedGate는 isTrigger=false 일반 콜라이더로 물리 막음
         go.AddComponent<BoxCollider2D>();
         go.AddComponent<TimedGateObstacle>();
         PrefabUtility.SaveAsPrefabAsset(go, PrefabFolder + "/TimedGate.prefab");
@@ -927,9 +911,13 @@ public static class AssetGenerator
         sr.sprite = LoadSquareSprite();
         sr.color = new Color(0.7f, 0.9f, 1f, 0.5f);
         sr.sortingOrder = 2;
+        // 물리 콜라이더: 플레이어가 위에 설 수 있음
         go.AddComponent<BoxCollider2D>();
-        var tc = go.AddComponent<BoxCollider2D>(); tc.isTrigger = true;
-        tc.size = new Vector2(1f, 2f); tc.offset = new Vector2(0, 1f);
+        // 트리거: 진입/퇴장 감지
+        var tc = go.AddComponent<BoxCollider2D>();
+        tc.isTrigger = true;
+        tc.size = new Vector2(1f, 2f);
+        tc.offset = new Vector2(0, 1f);
         go.AddComponent<IceZoneObstacle>();
         PrefabUtility.SaveAsPrefabAsset(go, PrefabFolder + "/IceZone.prefab");
         Object.DestroyImmediate(go);
